@@ -112,42 +112,46 @@ int main(int argc, char* argv[]) {
     const char* filename = argv[1];
     Graph<uint32_t, uint64_t> G;
     G.read_graph(filename);
-    if (!G.symmetrized) { G = make_symmetrized(G); }
-    std::cout << "Running parallel MIS..." << std::endl;
-    internal::timer t;
+    if (!G.symmetrized) { 
+        G = make_symmetrized(G); 
+    }
+    std::cout << "Warming up (dry run)..." << std::endl;
+    {
+        auto tmp = MIS(G); 
+    }
+    std::vector<double> times;
+    std::vector<size_t> sizes;
+    std::cout << "Running MIS on " << filename << std::endl;
+    for (int run = 1; run <= 3; run++) {
+        internal::timer t;
+        auto mis_set = MIS(G);
+        t.stop();
+        double elapsed = t.total_time();
+        times.push_back(elapsed);
+        sizes.push_back(mis_set.size());
+        std::cout << "Run " << run << ": " << elapsed << " s" << std::endl;
+    }
+    double avg_time = std::accumulate(times.begin(), times.end(), 0.0) / times.size();
+    size_t last_size = sizes.back();
+    std::cout << "Average time (3 runs): " << avg_time << " s\n";
+    std::cout << "MIS size (last run): " << last_size << " / " << G.n << std::endl;
+    // 验证最后一次 MIS
     auto mis_set = MIS(G);
-    t.stop();
-    std::cout << "Average time: " << t.total_time() << "\n";
-    std::cout << "MIS size: " << mis_set.size() << " / " << G.n << std::endl;
-    /*
-    size_t bad_edges = 0;
-    std::sort(mis_set.begin(), mis_set.end());
-    for (auto u : mis_set) {
-        for (size_t e = G.offsets[u]; e < G.offsets[u + 1]; e++) {
-            if (std::binary_search(mis_set.begin(), mis_set.end(), G.edges[e].v)) {
-                bad_edges++;
-            }
-        }
-    }*/
     auto mis_flags = parlay::sequence<bool>(G.n, false);
     parlay::parallel_for(0, mis_set.size(), [&](size_t i) {
-    mis_flags[mis_set[i]] = true;
+        mis_flags[mis_set[i]] = true;
     });
-
-    // 每个节点统计是否发现冲突
     auto bad_edges_count = parlay::delayed_seq<size_t>(G.n, [&](size_t u) {
-    if (!mis_flags[u]) return (size_t)0;
-    size_t local_conflicts = 0;
-    for (size_t e = G.offsets[u]; e < G.offsets[u + 1]; e++) {
-        if (mis_flags[G.edges[e].v]) {
-        local_conflicts++;
+        if (!mis_flags[u]) return (size_t)0;
+        size_t local_conflicts = 0;
+        for (size_t e = G.offsets[u]; e < G.offsets[u + 1]; e++) {
+            if (mis_flags[G.edges[e].v]) {
+                local_conflicts++;
+            }
         }
-    }
-    return local_conflicts;
+        return local_conflicts;
     });
-
-    // 并行归约求和
-size_t bad_edges = parlay::reduce(bad_edges_count);
+    size_t bad_edges = parlay::reduce(bad_edges_count);
     if (bad_edges == 0) {
         std::cout << "✅ Verified: MIS is valid (no edge inside set)" << std::endl;
     } else {
