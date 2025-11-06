@@ -1,11 +1,125 @@
 #pragma once
 #include <atomic>
-#include <random>
-#include "parlay/parallel.h"
-#include "parlay/primitives.h"
-#include "parlay/random.h"
+#include <bit>
+#include <cstdint>
+#include <thread>
+
+#ifndef WIDTH
+#define WIDTH 100
+#endif
+
+template <class Graph>
+struct Counter {
+    using NodeId = typename Graph::NodeId;
+
+    // 绑定对象
+    const Graph* G;                                      // 图
+    NodeId       u;                                      // 本计数器对应的顶点
+    const parlay::sequence<std::atomic<uint64_t>>* status;   // 全局状态数组
+    const parlay::sequence<double>*                 priority; // 全局优先级
+
+    // 状态（和采样配置）
+    int              verified_value;     // 上次校准得到的精确值
+    std::atomic<int> approxmt_count;     // 近似计数(被并发 fetch_sub)
+    std::atomic<bool> gate;              // 轻量互斥，避免重复校准
+    int              s;                  // 采样步长
+    double           p;                  // 采样概率（外部采样契约）
+    int              threshould;         // 几何带级阈值（避免频繁校准）
+
+    Counter()
+      : G(nullptr), u(0), status(nullptr), priority(nullptr),
+        verified_value(0), approxmt_count(0), gate(false),
+        s(1), p(1.0), threshould(0) {}
+
+    // 用精确初值 verified 来初始化（外部已数好，或初次计算）
+    Counter(const Graph& g,
+            NodeId u_,
+            const parlay::sequence<std::atomic<uint64_t>>* status_,
+            const parlay::sequence<double>* priority_,
+            int verified)
+      : G(&g), u(u_), status(status_), priority(priority_),
+        verified_value(verified), approxmt_count(verified), gate(false)
+    {
+        s = (verified < WIDTH) ? 1 : 2 * (verified / WIDTH);
+        p = 1.0 / static_cast<double>(s);
+        int bands = verified / WIDTH;
+        threshould = (bands > 0)
+          ? static_cast<int>(std::bit_floor(static_cast<unsigned>(bands)) * WIDTH)
+          : 0;
+    }
+
+    inline int  get_verified()  { return verified_value; }
+    inline int  get_approxmt()  { return approxmt_count.load(std::memory_order_relaxed); }
+    inline bool is_zero()       { return get_approxmt() == 0; }
+
+    // 扣减并在跨越阈值时触发校准（校准里会“重扫邻域”做精确计数）
+    inline void decrement() noexcept {
+        thread_local uint64_t tl_counter = 1469598103934665603ull;
+        uint64_t seed = tl_counter++ ^ reinterpret_cast<uintptr_t>(this);
+        uint64_t x = parlay::hash64(seed);
+        double u = static_cast<double>(x >> 11) * (1.0 / 9007199254740992.0);
+        if (u >= p) return;
+
+        if (approxmt_count.fetch_sub(s, std::memory_order_relaxed) > threshould) return;
+
+        bool expected = false;
+        if (gate.compare_exchange_strong(expected, true, std::memory_order_acq_rel)) {
+            int cur = approxmt_count.load(std::memory_order_relaxed);
+            if (cur <= threshould) {
+                update(); // 真正的图上“重扫邻域”
+            }
+            gate.store(false, std::memory_order_release);
+        } else {
+            while (gate.load(std::memory_order_acquire)) {
+                std::this_thread::yield();
+            }
+        }
+    }
+    inline void operator--(int) noexcept { decrement(); }
+
+private:
+    // 在图上“重扫邻域”，精确数
+    inline void update() noexcept {
+        if (G == nullptr || status == nullptr || priority == nullptr) return;
+        double pu = (*priority)[u];
+        int exact = 0;
+        size_t beg = G->offsets[u];
+        size_t end = G->offsets[u + 1];
+        for (size_t e = beg; e < end; ++e) {
+            NodeId v = G->edges[e].v;
+            uint64_t sv = (*status)[v].load(std::memory_order_relaxed);
+            if (sv == 0 /* UNDECIDED */ && (*priority)[v] > pu) {
+                ++exact;
+            }
+        }
+        verified_value = exact;
+        approxmt_count.store(verified_value, std::memory_order_relaxed);
+
+        if (verified_value < WIDTH) {
+            s = 1;
+        } else {
+            s = 2 * (verified_value / WIDTH);
+            if (s <= 0) s = 1;
+        }
+        p = (s > 0) ? (1.0 / static_cast<double>(s)) : 0.0;
+
+        int bands = verified_value / WIDTH;
+        threshould = (bands > 0)
+          ? static_cast<int>(std::bit_floor(static_cast<unsigned>(bands)) * WIDTH)
+          : 0;
+
+        if (verified_value == 0) {
+            // 彻底关闭采样
+            p = 0.0;
+            s = 1;
+            threshould = 0;
+        }
+    }
+};
 
 
+
+/*
 struct Counter {
     int              verified_value;
     std::atomic<int> approxmt_count;
@@ -25,6 +139,7 @@ struct Counter {
         //else verified_value.store(f, std::memory_order_relaxed);
     }
 };
+*/
 
 
 
