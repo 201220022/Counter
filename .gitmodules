@@ -1,0 +1,6 @@
+[submodule "external/parlaylib"]
+	path = external/parlaylib
+	url = https://github.com/cmuparlay/parlaylib.git
+[submodule "baselines/gbbs"]
+	path = baselines/gbbs
+	url = https://github.com/ParAlg/gbbs.git

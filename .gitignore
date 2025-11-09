@@ -1,4 +1,6 @@
 testcases/bin/
 testcases/gbbs/
 testcases/txt/
-external/
+# external/
+*.txt
+*.csv
