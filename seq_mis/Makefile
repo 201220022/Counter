@@ -6,7 +6,7 @@ endif
 
 CPPFLAGS = -std=c++20 -Wall -Wextra -Werror
 
-INCLUDE_PATH = -Iexternal/parlaylib/include/ -I../ -Iexternal/
+INCLUDE_PATH = -I../external/parlaylib/include/ -I../ -I../external/
 
 ifdef CILKPLUS
 CC = clang++
@@ -35,10 +35,13 @@ CPPFLAGS += -DPARLAY_USE_STD_ALLOC
 endif
 
 
-all: mis
+all: mis mis_dag
 
 mis: mis.cpp
 	$(CC) $(CPPFLAGS) $(INCLUDE_PATH) mis.cpp -o mis
 
+mis_dag: mis_dag.cpp
+	$(CC) $(CPPFLAGS) $(INCLUDE_PATH) mis_dag.cpp -o mis_dag
+
 clean:
-	rm mis
+	rm -f mis mis_dag
