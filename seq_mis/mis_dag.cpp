@@ -5,17 +5,17 @@
 #include <fstream>
 #include <iostream>
 #include <numeric>
-#include <vector>
+// #include <vector>
 using namespace parlay;
 
 template <class Graph>
-std::vector<typename Graph::NodeId> MIS_DAG(const Graph &G) {
+parlay::sequence<typename Graph::NodeId> MIS_DAG(const Graph &G) {
     using NodeId = typename Graph::NodeId;
     size_t n = G.n;
 
     auto perm = parlay::random_permutation<NodeId>(n);
 
-    std::vector<int> priorities(n);
+    parlay::sequence<int> priorities(n);
     for (NodeId u = 0; u < n; u++) {
         int count = 0;
         for (size_t e = G.offsets[u]; e < G.offsets[u+1]; e++) {
@@ -25,12 +25,12 @@ std::vector<typename Graph::NodeId> MIS_DAG(const Graph &G) {
         priorities[u] = count;
     }
 
-    std::vector<bool> in_mis(n, false);
-    std::vector<bool> excluded(n, false);
+    parlay::sequence<bool> in_mis(n, false);
+    parlay::sequence<bool> excluded(n, false);
     size_t finished = 0;
 
     while (finished < n) {
-        std::vector<NodeId> roots;
+        parlay::sequence<NodeId> roots;
         for (NodeId u = 0; u < n; u++) {
             if (priorities[u] == 0 && !in_mis[u] && !excluded[u]) {
                 roots.push_back(u);
@@ -43,8 +43,8 @@ std::vector<typename Graph::NodeId> MIS_DAG(const Graph &G) {
             in_mis[u] = true;
         }
 
-        std::vector<bool> removed_mark(n, false);
-        std::vector<NodeId> removed;
+        parlay::sequence<bool> removed_mark(n, false);
+        parlay::sequence<NodeId> removed;
         for (NodeId u : roots) {
             for (size_t e = G.offsets[u]; e < G.offsets[u+1]; e++) {
                 NodeId v = G.edges[e].v;
@@ -70,7 +70,7 @@ std::vector<typename Graph::NodeId> MIS_DAG(const Graph &G) {
         finished += removed.size();
     }
 
-    std::vector<NodeId> result;
+    parlay::sequence<NodeId> result;
     for (NodeId u = 0; u < n; u++) {
         if (in_mis[u]) result.push_back(u);
     }
@@ -78,9 +78,8 @@ std::vector<typename Graph::NodeId> MIS_DAG(const Graph &G) {
 }
 
 template <class NodeId>
-void save_mis_to_file(const std::vector<NodeId>& mis_set, const std::string& filename) {
-    auto sorted_mis = mis_set;
-    std::sort(sorted_mis.begin(), sorted_mis.end());
+void save_mis_to_file(const parlay::sequence<NodeId>& mis_set, const std::string& filename) {
+    auto sorted_mis = parlay::sort(mis_set);
 
     size_t last_slash = filename.find_last_of('/');
     if (last_slash != std::string::npos) {
