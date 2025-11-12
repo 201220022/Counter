@@ -9,15 +9,68 @@
 #include "parlay/primitives.h"
 #include "parlay/random.h"
 #include "counter.h"
-#include "tools.h"
+#include <unordered_map>
+#include <cmath>
 #include <atomic>
-#include <iostream>
 #include <chrono>
 #include <filesystem>
 using namespace parlay;
+using namespace std;
+
+void show_counter(sequence<Counter>& counter, size_t n, string graphname){
+    std::vector<int> values(n);
+    parallel_for(0, n, [&](size_t i) {
+        values[i] = counter[i].get_verified();
+    });
+
+    std::ofstream ofs1("counter_distribution/" + graphname + ".txt");
+    for (int v : values)
+        ofs1 << v << "\n";
+    ofs1.close();
+
+    // 计算基础统计信息
+    long long sum = 0;
+    int min_val = INT_MAX, max_val = INT_MIN;
+    for (int v : values) {
+        sum += v;
+        if (v < min_val) min_val = v;
+        if (v > max_val) max_val = v;
+    }
+    double mean = static_cast<double>(sum) / n;
+
+    // 计算方差与标准差
+    double var_sum = 0.0;
+    for (int v : values) {
+        var_sum += (v - mean) * (v - mean);
+    }
+    double variance = var_sum / n;
+    double stddev = std::sqrt(variance);
+
+    // 计算分位数
+    std::sort(values.begin(), values.end());
+    auto percentile = [&](double p) {
+        size_t idx = std::min<size_t>(n - 1, static_cast<size_t>(p * n));
+        return values[idx];
+    };
+
+    std::cout << "\n===== Counter Initialization Statistics =====\n";
+    std::cout << "Size: " << n << "\n";
+    std::cout << "Min: " << min_val << "\n";
+    std::cout << "Max: " << max_val << "\n";
+    std::cout << "Mean: " << mean << "\n";
+    std::cout << "Std Dev: " << stddev << "\n";
+    std::cout 
+            << percentile(0.1) << ", " << percentile(0.2) << ", "  << percentile(0.3) << ", "  << percentile(0.4) << ", "  << percentile(0.5) << ", " 
+            << percentile(0.6) << ", " << percentile(0.7) << ", "  << percentile(0.8) << ", "  << percentile(0.9) << ", "  << percentile(1.0) << "\n"; 
+    std::cout 
+            << percentile(0.91) << ", " << percentile(0.92) << ", "  << percentile(0.93) << ", "  << percentile(0.94) << ", "  << percentile(0.95) << ", " 
+            << percentile(0.96) << ", " << percentile(0.97) << ", "  << percentile(0.98) << ", "  << percentile(0.99) << ", "  << percentile(1.00) << "\n";
+    std::cout << "=============================================\n\n";
+}
+
 
 template <class Graph>
-parlay::sequence<typename Graph::NodeId> MIS(const Graph& G) {
+parlay::sequence<typename Graph::NodeId> MIS(const Graph& G, string graphname) {
     using NodeId = typename Graph::NodeId;
     size_t n = G.n;
     enum Status : uint64_t { UNDECIDED = 0, SELECTED = 1, REMOVED = 2 };
@@ -32,13 +85,22 @@ parlay::sequence<typename Graph::NodeId> MIS(const Graph& G) {
         }
         return Counter(count);
     });
-    //show_counter(counter, n);
+    show_counter(counter, n, graphname);
     sequence<NodeId> frontier = filter(                          // frontier: 准备标记Selected的点，初始化为counter为0的
         iota<NodeId>(n),
         [&](NodeId u) { return counter[u].is_zero(); }
     );
 
+    std::ofstream ofs_round("round_distribution/" + graphname + ".txt");
+
+    ofs_round << G.n << "\n";
+    ofs_round << G.m << "\n";
+    int round = 0;
+    string frontier_size = "";
+
     while (!frontier.empty()) {
+        round++;
+        frontier_size = frontier_size + to_string(frontier.size()) + "\n";
 
         // step 1: frontier里面的点全部标记 Selected
         parallel_for(0, frontier.size(), [&](size_t i) {
@@ -93,7 +155,10 @@ parlay::sequence<typename Graph::NodeId> MIS(const Graph& G) {
     auto mis = filter(iota<NodeId>(n), [&](NodeId u) {
         return status[u] == SELECTED;
     });
+    ofs_round << mis.size() << "\n" << round << "\n" << frontier_size;
+    ofs_round.close();
     return mis;
+
 }
 
 template <class NodeId>
@@ -131,30 +196,12 @@ void save_mis_to_file(const parlay::sequence<NodeId>& mis_set,
 int main(int argc, char* argv[]) {
     if (argc < 2 || argc > 3) { std::cerr << "Usage: ./mis input_graph [verify]" << std::endl; return 1; }
     const char* filename = argv[1];
+    std::string graphname = std::filesystem::path(filename).stem().string();
     Graph<uint32_t, uint64_t> G;
     G.read_graph(filename);
     if (!G.symmetrized) { G = make_symmetrized(G); }
-    // Warm up
-    { auto tmp = MIS(G); }
-    // Test
-    std::string graphname = std::filesystem::path(filename).stem().string();
-    std::vector<double> times;
-    std::cout << graphname << "    ";
-    for (int run = 1; run <= 3; run++) {
-        internal::timer t;
-        auto mis_set = MIS(G);
-        t.stop();
-        times.push_back(t.total_time());
-    }
-    double avg_time = std::accumulate(times.begin(), times.end(), 0.0) / times.size();
-    std::cout << avg_time << "s = avg(" << times[0] << ", " << times[1] << ", "  << times[2] << ")\n";
-    // Verify
-    bool verify = false;
-    if (argc == 3) verify = (std::atoi(argv[2]) != 0);
-    if (verify) {
-        auto mis_set = MIS(G);
-        std::string output_file = "./results/" + graphname + ".txt";
-        save_mis_to_file(mis_set, output_file);
-    }
+    auto mis_set = MIS(G, graphname);
+    std::string output_file = "./results/" + graphname + ".txt";
+    save_mis_to_file(mis_set, output_file);
     return 0;
 }
