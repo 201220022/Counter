@@ -20,7 +20,7 @@ using namespace std;
 void show_counter(sequence<Counter>& counter, size_t n, string graphname){
     std::vector<int> values(n);
     parallel_for(0, n, [&](size_t i) {
-        values[i] = counter[i].get_verified();
+        values[i] = counter[i].get_approxmt();
     });
 
     std::ofstream ofs1("counter_distribution/" + graphname + ".txt");
@@ -85,7 +85,7 @@ parlay::sequence<typename Graph::NodeId> MIS(const Graph& G, string graphname) {
         }
         return Counter(count);
     });
-    show_counter(counter, n, graphname);
+    show_counter(counter, n, graphname + "_start");
     sequence<NodeId> frontier = filter(                          // frontier: 准备标记Selected的点，初始化为counter为0的
         iota<NodeId>(n),
         [&](NodeId u) { return counter[u].is_zero(); }
@@ -157,6 +157,8 @@ parlay::sequence<typename Graph::NodeId> MIS(const Graph& G, string graphname) {
     });
     ofs_round << mis.size() << "\n" << round << "\n" << frontier_size;
     ofs_round.close();
+
+    show_counter(counter, n, graphname + "_end");
     return mis;
 
 }
@@ -203,5 +205,31 @@ int main(int argc, char* argv[]) {
     auto mis_set = MIS(G, graphname);
     std::string output_file = "./results/" + graphname + ".txt";
     save_mis_to_file(mis_set, output_file);
+
+    auto mis_flags = parlay::sequence<bool>(G.n, false);
+    parlay::parallel_for(0, mis_set.size(), [&](size_t i) {
+        mis_flags[mis_set[i]] = true;
+    });
+    auto bad_edges_count = parlay::delayed_seq<size_t>(G.n, [&](size_t u) {
+        if (!mis_flags[u]) return (size_t)0;
+        size_t local_conflicts = 0;
+        for (size_t e = G.offsets[u]; e < G.offsets[u + 1]; e++) {
+            if (mis_flags[G.edges[e].v]) {
+                local_conflicts++;
+            }
+        }
+        return local_conflicts;
+    });
+    size_t bad_edges = parlay::reduce(bad_edges_count);
+    if (bad_edges != 0) std::cout << "❌ MIS invalid: " << bad_edges << " conflicting edges" << std::endl;
+
+    size_t non_maximal = parlay::count_if(parlay::iota<size_t>(G.n), [&](size_t u) {
+        if (mis_flags[u]) return false; // 已选节点跳过
+        for (size_t e = G.offsets[u]; e < G.offsets[u + 1]; e++) {
+            if (mis_flags[G.edges[e].v]) return false; // 有邻居在 MIS 中
+        }
+        return true; // 没邻居在 MIS 中 → 非极大
+    });
+    if (non_maximal != 0) std::cout << "⚠️ MIS not maximal: " << non_maximal << " nodes could be added\n";
     return 0;
 }

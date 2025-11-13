@@ -6,3 +6,4 @@ make
 #./mis ../testcases/bin/eu-2015-host_sym.bin
 #./mis ../testcases/bin/sd_arc_sym.bin
 #./mis ../testcases/bin/soc-LiveJournal1_sym.bin
+./mis ../testcases/bin/WikiTalk_sym.bin

@@ -1,6 +1,6 @@
 import struct
-file_in  = "bin/sd_arc_sym.bin"
-file_out = "txt/sd_arc.txt"
+file_in  = "bin/WikiTalk_sym.bin"
+file_out = "txt/WikiTalk_sym.txt"
 
 with open(file_in, "rb") as f:
     n = struct.unpack("Q", f.read(8))[0]

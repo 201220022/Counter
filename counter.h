@@ -3,7 +3,7 @@
 #include <bit>
 #include <cstdint>
 #include <thread>
-
+/*
 #ifndef WIDTH
 #define WIDTH 100
 #endif
@@ -88,7 +88,7 @@ private:
         for (size_t e = beg; e < end; ++e) {
             NodeId v = G->edges[e].v;
             uint64_t sv = (*status)[v].load(std::memory_order_relaxed);
-            if (sv == 0 /* UNDECIDED */ && (*priority)[v] > pu) {
+            if (sv == 0  && (*priority)[v] > pu) {
                 ++exact;
             }
         }
@@ -117,9 +117,9 @@ private:
     }
 };
 
+*/
 
 
-/*
 struct Counter {
     int              verified_value;
     std::atomic<int> approxmt_count;
@@ -130,16 +130,8 @@ struct Counter {
     inline void decrement() noexcept { approxmt_count.fetch_sub(1, std::memory_order_relaxed); }
     inline void operator--(int) noexcept { decrement(); }
     inline bool is_zero() noexcept { return !approxmt_count.load(std::memory_order_relaxed); }
-    template <typename F>
-    inline int p(F&& fn) noexcept { return fn(); }
-    template <typename F>
-    inline void update(F&& f) noexcept {
-        approxmt_count.store(0, std::memory_order_relaxed);
-        //if constexpr (std::is_invocable_v<F>) verified_value.store(f(), std::memory_order_relaxed);
-        //else verified_value.store(f, std::memory_order_relaxed);
-    }
 };
-*/
+
 
 
 
